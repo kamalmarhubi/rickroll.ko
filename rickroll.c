@@ -42,96 +42,101 @@ asmlinkage long (*original_sys_open)(const char __user *, int, umode_t);
 asmlinkage unsigned long **sys_call_table;
 
 
-static int __init rickroll_init(void)
-{
-    if(!rickroll_filename) {
-	/* TODO: could check the file exists here */
-	printk(KERN_ERR "No rick roll filename given.");
-	return -EINVAL;  /* invalid argument */
-    }
-
-    sys_call_table = find_sys_call_table();
-
-    if(!sys_call_table) {
-	printk(KERN_ERR "Couldn't find sys_call_table.\n");
-	return -EPERM;  /* operation not permitted; couldn't find general error */
-    }
-
-    /*
-     * Replace the entry for open with our own function. We save the location
-     * of the real sys_open so we can put it back when we're unloaded.
-     */
-    DISABLE_WRITE_PROTECTION;
-    original_sys_open = (void *) sys_call_table[__NR_open];
-    sys_call_table[__NR_open] = (unsigned long *) rickroll_open;
-    ENABLE_WRITE_PROTECTION;
-
-    printk(KERN_INFO "Never gonna give you up!\n");
-    return 0;  /* zero indicates success */
-}
-
-
-/*
- * Our replacement for sys_open, which forwards to the real sys_open unless the
- * file name ends with .mp3, in which case it opens the rick roll file instead.
+/**
+ * Replace the open system call with our rickrolling version.
  */
-asmlinkage long rickroll_open(const char __user *filename, int flags, umode_t mode)
-{
-    int len = strlen(filename);
+static int __init rickroll_init(void) {
+  if (!rickroll_filename) {
+    /* TODO: could check the file exists here */
+    printk(KERN_ERR "No rick roll filename given.");
+    return -EINVAL;  /* invalid argument */
+  }
 
-    /* See if we should hijack the open */
-    if(strcmp(filename + len - 4, ".mp3")) {
-	/* Just pass through to the real sys_open if the extension isn't .mp3 */
-	return (*original_sys_open)(filename, flags, mode);
-    } else {
-	/* Otherwise we're going to hijack the open */
-	mm_segment_t old_fs;
-	long fd;
+  sys_call_table = find_sys_call_table();
 
-	/*
-	 * sys_open checks to see if the filename is a pointer to user space
-	 * memory. When we're hijacking, the filename we pass will be in kernel
-	 * memory. To get around this, we juggle some segment registers. I
-	 * believe fs is the segment used for user space, and we're temporarily
-	 * changing it to be the segment the kernel uses.
-	 *
-	 * An alternative would be to use read_from_user() and copy_to_user()
-	 * and place the rickroll filename at the location the user code passed
-	 * in, saving and restoring the memory we overwrite.
-	 */
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
+  if (!sys_call_table) {
+    printk(KERN_ERR "Couldn't find sys_call_table.\n");
+    return -EPERM;  /* operation not permitted; couldn't find general error */
+  }
 
-	/* Open the rickroll file instead */
-	fd = (*original_sys_open)(rickroll_filename, flags, mode);
+  /*
+   * Replace the entry for open with our own function. We save the location
+   * of the real sys_open so we can put it back when we're unloaded.
+   */
+  DISABLE_WRITE_PROTECTION;
+  original_sys_open = (void *) sys_call_table[__NR_open];
+  sys_call_table[__NR_open] = (unsigned long *) rickroll_open;
+  ENABLE_WRITE_PROTECTION;
 
-	/*
-	 * TODO: since the filename can be written from sysfs, if we decide to
-	 * add a check that the file exists on module load, should we also
-	 * enforce it here and return an error if it doesn't?
-	 */
-
-	/* Restore fs to its original value */
-	set_fs(old_fs);
-
-	return fd;
-    }
+  printk(KERN_INFO "Never gonna give you up!\n");
+  return 0;  /* zero indicates success */
 }
 
 
-static void __exit rickroll_cleanup(void)
-{
-    printk(KERN_INFO "Ok, now we're gonna give you up. Sorry.\n");
+/**
+ * Open a file, rickrolling if its extension is '.mp3'.
+ *
+ * This forwards to the real sys_open unless the file name ends with .mp3, in
+ * which case it opens rickroll_filename instead.
+ */
+asmlinkage long rickroll_open(
+	const char __user *filename, int flags, umode_t mode) {
+  int len = strlen(filename);
 
-    /* Restore the original sys_open in the table */
-    DISABLE_WRITE_PROTECTION;
-    sys_call_table[__NR_open] = (unsigned long *) original_sys_open;
-    ENABLE_WRITE_PROTECTION;
+  /* See if we should hijack the open */
+  if (strcmp(filename + len - 4, ".mp3")) {
+	  /* Just pass through to the real sys_open if the extension isn't .mp3 */
+    return (*original_sys_open)(filename, flags, mode);
+  } else {
+	  /* Otherwise we're going to hijack the open */
+	  mm_segment_t old_fs;
+	  long fd;
+
+	  /*
+	   * sys_open checks to see if the filename is a pointer to user space
+	   * memory. When we're hijacking, the filename we pass will be in kernel
+	   * memory. To get around this, we juggle some segment registers. I
+	   * believe fs is the segment used for user space, and we're temporarily
+	   * changing it to be the segment the kernel uses.
+	   *
+	   * An alternative would be to use read_from_user() and copy_to_user()
+	   * and place the rickroll filename at the location the user code passed
+	   * in, saving and restoring the memory we overwrite.
+	   */
+	  old_fs = get_fs();
+	  set_fs(KERNEL_DS);
+
+	  /* Open the rickroll file instead */
+	  fd = (*original_sys_open)(rickroll_filename, flags, mode);
+
+	  /*
+	   * TODO: since the filename can be written from sysfs, if we decide to
+	   * add a check that the file exists on module load, should we also
+	   * enforce it here and return an error if it doesn't?
+	   */
+
+	  /* Restore fs to its original value */
+	  set_fs(old_fs);
+
+	  return fd;
+  }
 }
 
 
-/*
- * Finds the system call table's location in memory.
+/**
+ * Restore the original sys_open.
+ */
+static void __exit rickroll_cleanup(void) {
+  printk(KERN_INFO "Ok, now we're gonna give you up. Sorry.\n");
+
+  DISABLE_WRITE_PROTECTION;
+  sys_call_table[__NR_open] = (unsigned long *) original_sys_open;
+  ENABLE_WRITE_PROTECTION;
+}
+
+
+/**
+ * Find the system call table's location in memory.
  *
  * This is necessary because the sys_call_table symbol is not exported. We find
  * it by iterating through kernel space memory, and looking for a known system
@@ -140,22 +145,21 @@ static void __exit rickroll_cleanup(void)
  * (__NR_close), we can get the table's base address.
  */
 static unsigned long **find_sys_call_table() {
-    unsigned long offset;
-    unsigned long **sct;
+  unsigned long offset;
+  unsigned long **sct;
 
-    for(offset = PAGE_OFFSET; offset < ULLONG_MAX; offset += sizeof(void *)) {
+  for (offset = PAGE_OFFSET; offset < ULLONG_MAX; offset += sizeof(void *)) {
 	sct = (unsigned long **) offset;
 
-	if(sct[__NR_close] == (unsigned long *) sys_close)
-	    return sct;
-    }
+	if(sct[__NR_close] == (unsigned long *) sys_close) return sct;
+  }
 
-    /*
-     * Given the loop limit, it's somewhat unlikely we'll get here. I don't
-     * even know if we can attempt to fetch such high addresses from memory,
-     * and even if you can, it will take a while!
-     */
-    return NULL;
+  /*
+   * Given the loop limit, it's somewhat unlikely we'll get here. I don't
+   * even know if we can attempt to fetch such high addresses from memory,
+   * and even if you can, it will take a while!
+   */
+  return NULL;
 }
 
 
