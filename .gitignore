@@ -1,0 +1,10 @@
+modules.order
+Module.symvers
+rickroll.ko
+.rickroll.ko.cmd
+rickroll.mod.c
+rickroll.mod.o
+.rickroll.mod.o.cmd
+rickroll.o
+.rickroll.o.cmd
+.tmp_versions
